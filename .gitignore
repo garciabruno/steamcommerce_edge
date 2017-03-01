@@ -1,0 +1,15 @@
+build/*
+config.py
+*.pyc
+*.db
+steamcommerce_purchases/logs/*
+steamcommerce_purchases/debug/*
+*.json
+*.egg-info
+*.log
+*.pickle
+*.ipynb
+*.log
+*.out
+data/*.json
+data/*.pickle
