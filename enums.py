@@ -21,7 +21,7 @@ class EEdgeBotStatus(IntEnum):
     StandingBy = 1
     PushingItemsToCart = 2
     PurchasingCart = 3
-    WatingForSufficientFunds = 4
+    WaitingForSufficientFunds = 4
     BlockedForTooManyPurchases = 5
     BlockedForUnknownReason = 6
 
@@ -37,3 +37,12 @@ class EdgeResult(IntEnum):
     IncompleteForm = 1
     ParamNotSerializable = 2
     TaskNotFound = 3
+
+
+class ETransactionResult(IntEnum):
+    Success = 1
+    Fail = 2
+    ShoppingCartGIDNotFound = 3
+    TransIdNotFound = 4
+    InsufficientFunds = 5
+    TooManyPurchases = 6
