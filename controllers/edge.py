@@ -1,34 +1,37 @@
 #!/usr/bin/env python
 # -*- coding:Utf-8 -*-
 
+import re
 import time
 import json
 import requests
+import datetime
 
 import enums
+import config
 from controllers import relations
-
-import datetime
-from steam.enums import EResult
 
 from steamcommerce_api.api import logger
 from steamcommerce_api.core import models
 
+from steam.enums import EResult
+from coinbase.wallet.client import Client
 
 log = logger.Logger('edge.controller', 'edge.controller.log').get_logger()
 
 
 class EdgeController(object):
-    def __init__(self, owner_id, giftee_account_id):
+    def __init__(self, owner_id, giftee_account_id, payment_method='steamaccount'):
         self.owner_id = owner_id
         self.giftee_account_id = giftee_account_id
+        self.payment_method = payment_method
 
         self.edge_bot_model = models.EdgeBot
         self.edge_task_model = models.EdgeTask
         self.edge_server_model = models.EdgeServer
 
     '''
-    Tasks
+    Task methods
     '''
 
     def create_edge_task(self, edge_bot_id, edge_server_id, data):
@@ -104,7 +107,7 @@ class EdgeController(object):
                 shopping_cart_gid=shopping_cart_gid
             )
 
-        if len(item):
+        if len(succesful_items):
             self.call_checkout(edge_task.edge_bot, edge_task.edge_server)
 
         self.set_edge_bot_status(
@@ -151,20 +154,175 @@ class EdgeController(object):
             return transaction_result
 
         if type(task_result) is dict:
-            result = EResult(task_result.get('result'))
             transid = task_result.get('transid')
+            result = EResult(task_result.get('result'))
             payment_method = task_result.get('payment_method')
             shopping_cart_gid = task_result.get('shopping_cart_gid')
 
-            if result == EResult.OK and payment_method == 'bitcoin':
-                self.get_transaction_link(edge_task.edge_bot, edge_task.edge_server, transid)
-            elif result == EResult.OK and payment_method == 'steamaccount':
-                relations.RelationController().commit_purchased_relations(shopping_cart_gid)
+            log.info(
+                u'Cart checkout with payment method {0} received {1}'.format(
+                    payment_method,
+                    repr(result)
+                )
+            )
+
+            if result == EResult.OK:
+                if payment_method == 'bitcoin':
+                    self.get_transaction_link(edge_task.edge_bot, edge_task.edge_server, transid)
+                elif payment_method == 'steamaccount':
+                    relations.RelationController().commit_purchased_relations(shopping_cart_gid)
+
+    def process_external_transaction(self, edge_task, task_result):
+        if type(task_result) is int:
+            log.error(u'Unable to complete external transaction, received {}'.format(task_result))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        bitpay_url = task_result.get('link')
+        shopping_cart_gid = task_result.get('shopping_cart_gid')
+
+        if not bitpay_url:
+            log.error(u'Failed to retrieve a bitpay invoice url')
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        log.info(u'Received bitpay url {}'.format(bitpay_url))
+
+        invoice_matches = re.findall('/i/([a-zA-Z0-9]+)', bitpay_url, re.DOTALL)
+
+        if not len(invoice_matches):
+            log.error(u'Failed to extract invoice_id from {}'.format(bitpay_url))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        invoice_id = invoice_matches[0]
+        log.info(u'Found bitpay invoice_id {}'.format(invoice_id))
+
+        try:
+            req = requests.get('https://bitpay.com/invoices/{}'.format(invoice_id), timeout=(10.0, 20.0))
+        except requests.exceptions.Timeout:
+            log.error(u'Bitpay API timed out')
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+        except Exception, e:
+            log.error(u'Unable to contact Bitpay API, raised {}'.format(e))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize data, received {}'.format(req.text))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        data = response.get('data')
+
+        if data.get('status') != 'new':
+            log.error(u'Bitpay Invoice id {0} status is {1}'.format(invoice_id, data.get('status')))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        log.info(
+            u'Invoice BTC price is {0} (${1} {2}) to address {3}'.format(
+                data.get('btcPrice'),
+                data.get('price'),
+                data.get('currency'),
+                data.get('bitcoinAddress')
+            )
+        )
+
+        client = Client(config.COINBASE_API_KEY, config.COINBASE_API_SECRET)
+
+        log.info(u'Getting primary Coinbase account')
+
+        primary_account = client.get_primary_account()
+
+        if float(primary_account.get('balance').get('amount')) < float(data.get('btcPrice')):
+            log.info(u'Insufficient Coinbase funds for transaction')
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.WaitingForSufficientFunds.value
+            )
+
+            return None
+
+        btc_amount = data.get('btcPrice')
+        to_address = data.get('bitcoinAddress')
+
+        log.info(
+            u'Sending {0} BTC to address {1} for shoppingCartGID {2}'.format(
+                btc_amount,
+                to_address,
+                shopping_cart_gid
+            )
+        )
+
+        tx = primary_account.send_money(
+            to=to_address,
+            amount=btc_amount,
+            currency='BTC'
+        )
+
+        log.info(
+            u'Coinbase transaction id {0} created for {1} BTC ({2} {3})'.format(
+                tx.get('id'),
+                tx.get('amount').get('amount'),
+                tx.get('native_amount').get('amount'),
+                tx.get('native_amount').get('currency')
+            )
+        )
+
+        self.set_edge_bot_status(
+            edge_task.edge_bot.network_id,
+            enums.EEdgeBotStatus.StandingBy.value
+        )
+
+        relations.RelationController().commit_purchased_relations(shopping_cart_gid)
+
+        self.reset_shopping_cart(edge_task.edge_bot, edge_task.edge_server)
 
     def get_task_callback(self, task_name):
         callbacks = {
             'add_subids_to_cart': self.process_cart_result,
-            'checkout_cart': self.process_cart_checkout
+            'checkout_cart': self.process_cart_checkout,
+            'get_external_link_from_transid': self.process_external_transaction
         }
 
         return callbacks.get(task_name)
@@ -208,6 +366,8 @@ class EdgeController(object):
                 task_callback = self.get_task_callback(edge_task.task_name)
 
                 if not task_callback:
+                    self.update_edge_task_status(edge_task.task_id, task_status)
+
                     continue
 
                 task_callback.__call__(edge_task, task_result)
@@ -369,7 +529,10 @@ class EdgeController(object):
 
             return None
 
-        self.set_edge_bot_status(edge_bot.network_id, enums.EEdgeBotStatus.PushingItemsToCart.value)
+        self.set_edge_bot_status(
+            edge_bot.network_id,
+            enums.EEdgeBotStatus.PushingItemsToCart.value
+        )
 
         self.create_edge_task(edge_bot.id, edge_server.id, response)
 
@@ -377,13 +540,16 @@ class EdgeController(object):
             items,
             commited_on_bot=edge_bot.network_id,
             task_id=response.get('task_id'),
-            commitment_level=enums.ERelationCommitment.AddedToCart.value
+            commitment_level=enums.ERelationCommitment.PushedToCart.value
         )
 
-        relations.RelationController().assign_requests_to_user(items)
+        relations.RelationController().assign_requests_to_user(self.owner_id, items)
 
     def push_relations(self):
         items = relations.RelationController().get_uncommited_relations(self.owner_id)
+
+        if not len(items.keys()):
+            log.info(u'No pending relations found')
 
         for currency_code in items.keys():
             log.info(u'Processing relations for currency {}'.format(currency_code))
@@ -416,7 +582,7 @@ class EdgeController(object):
 
             self.push_relations_to_edge_bot(edge_bot, edge_server, items[currency_code])
 
-    def call_checkout(self, edge_bot, edge_server, payment_method='steamaccount'):
+    def call_checkout(self, edge_bot, edge_server):
         log.info(
             u'Calling checkout to edge bot with network id {0} through edge server #{1}'.format(
                 edge_bot.network_id,
@@ -429,7 +595,7 @@ class EdgeController(object):
         data = {
             'network_id': edge_bot.network_id,
             'giftee_account_id': self.giftee_account_id,
-            'payment_method': payment_method
+            'payment_method': self.payment_method
         }
 
         try:
@@ -470,8 +636,40 @@ class EdgeController(object):
         url = self.get_edge_api_url(edge_server.ip_address, 'transaction/link/')
 
         data = {
+            'transid': transid,
             'network_id': edge_bot.network_id,
-            'transid': self.giftee_account_id
+        }
+
+        try:
+            req = requests.post(url, data=data, timeout=(10.0, 20.0))
+        except requests.exceptions.Timeout:
+            log.error(u'Edge server {} timed out'.format(edge_server.id))
+
+            return None
+        except Exception, e:
+            log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            return None
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            return None
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from edge server, received {}'.format(req.text))
+
+            return None
+
+        self.create_edge_task(edge_bot.id, edge_server.id, response)
+
+    def reset_shopping_cart(self, edge_bot, edge_server):
+        url = self.get_edge_api_url(edge_server.ip_address, 'cart/reset/')
+
+        data = {
+            'network_id': edge_bot.network_id,
         }
 
         try:
