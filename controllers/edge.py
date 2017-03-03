@@ -172,6 +172,11 @@ class EdgeController(object):
                 elif payment_method == 'steamaccount':
                     relations.RelationController().commit_purchased_relations(shopping_cart_gid)
 
+                    self.set_edge_bot_status(
+                        edge_task.edge_bot.network_id,
+                        enums.EEdgeBotStatus.StandingBy.value
+                    )
+
     def process_external_transaction(self, edge_task, task_result):
         if type(task_result) is int:
             log.error(u'Unable to complete external transaction, received {}'.format(task_result))
