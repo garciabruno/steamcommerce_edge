@@ -63,14 +63,12 @@ class RelationController(object):
     def get_commited_sub_ids(self, user_id):
         userrequest_relations = self.get_userrequest_relations(
             user_id,
-            enums.ERelationCommitment.Uncommited.value,
-            eq=False
+            enums.ERelationCommitment.AddedToCart.value
         )
 
         paidrequest_relations = self.get_paidrequest_relations(
             user_id,
-            enums.ERelationCommitment.Uncommited.value,
-            eq=False
+            enums.ERelationCommitment.AddedToCart.value
         )
 
         subids = []
