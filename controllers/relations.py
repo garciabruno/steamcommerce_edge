@@ -166,7 +166,7 @@ class RelationController(object):
             task_id=None,
             commited_on_bot=None,
             shopping_cart_gid=None,
-            commitment_level=enums.ERelationCommitment.StandingBy.value,
+            commitment_level=enums.ERelationCommitment.Uncommited.value,
         ).where(
             self.userrequest_relation_model.shopping_cart_gid == shopping_cart_gid
         ).execute()
@@ -175,7 +175,7 @@ class RelationController(object):
             task_id=None,
             commited_on_bot=None,
             shopping_cart_gid=None,
-            commitment_level=enums.ERelationCommitment.StandingBy.value,
+            commitment_level=enums.ERelationCommitment.Uncommited.value,
         ).where(
             self.paidrequest_relation_model.shopping_cart_gid == shopping_cart_gid
         ).execute()
