@@ -2,6 +2,7 @@
 # -*- coding:Utf-8 -*-
 
 import enums
+import datetime
 
 from steamcommerce_api.api import userrequest
 from steamcommerce_api.api import paidrequest
@@ -135,6 +136,16 @@ class RelationController(object):
             })
 
         for relation in userrequest_relations:
+            userrequest = relation.request
+
+            if (
+                userrequest.promotion and
+                not userrequest.paid_before_promotion_end_date and
+                userrequest.expiration_date and
+                userrequest.expiration_date < datetime.datetime.now()
+            ):
+                continue
+
             product = relation.product
 
             sub_id = product.sub_id or product.store_sub_id
