@@ -305,7 +305,6 @@ class EdgeController(object):
                 to=to_address,
                 amount=btc_amount,
                 currency='BTC',
-                fee=self.get_recommended_tx_fee(),
                 idem=str(shopping_cart_gid)
             )
         except Exception, e:
