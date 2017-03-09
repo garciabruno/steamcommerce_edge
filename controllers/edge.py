@@ -305,7 +305,7 @@ class EdgeController(object):
                 to=to_address,
                 amount=btc_amount,
                 currency='BTC',
-                fee='0.0001',
+                fee=self.get_recommended_tx_fee(),
                 idem=str(shopping_cart_gid)
             )
         except Exception, e:
@@ -743,7 +743,7 @@ class EdgeController(object):
 
             return 0
 
-        tx_in_btc = decimal.Decimal(response.get('fastestFee')) / decimal.Decimal(100000000.0)
+        tx_in_btc = decimal.Decimal(180 * response.get('fastestFee')) / decimal.Decimal(100000000.0)
 
         log.info(u'Fee is set to {}'.format(tx_in_btc))
 
