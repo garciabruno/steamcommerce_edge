@@ -4,6 +4,7 @@
 import re
 import time
 import json
+import decimal
 import requests
 import datetime
 
@@ -299,11 +300,23 @@ class EdgeController(object):
             )
         )
 
-        tx = primary_account.send_money(
-            to=to_address,
-            amount=btc_amount,
-            currency='BTC'
-        )
+        try:
+            tx = primary_account.send_money(
+                to=to_address,
+                amount=btc_amount,
+                currency='BTC',
+                fee='0.0001',
+                idem=str(shopping_cart_gid)
+            )
+        except Exception, e:
+            log.error(u'Unable to perform Coinbase transaction, raised {}'.format(e))
+
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
 
         log.info(
             u'Coinbase transaction id {0} created for {1} BTC ({2} {3})'.format(
@@ -345,10 +358,13 @@ class EdgeController(object):
             response = self.get_edge_bot_task_status(edge_task)
 
             if not response:
+                self.update_edge_task_status(edge_task.task_id, 'FAILURE')
+
                 continue
 
             if not response.get('success'):
                 log.info(u'Failed to retrieve task status for {}'.format(edge_task.task_id))
+                self.update_edge_task_status(edge_task.task_id, 'FAILURE')
 
                 continue
 
@@ -360,25 +376,26 @@ class EdgeController(object):
 
                 continue
 
-            if task_status == 'SUCCESS':
-                log.info(
-                    u'Received SUCCESS on task {0} id {1}'.format(
-                        edge_task.task_name,
-                        edge_task.task_id
-                    )
-                )
-
-                task_callback = self.get_task_callback(edge_task.task_name)
-
-                if not task_callback:
-                    self.update_edge_task_status(edge_task.task_id, task_status)
-
-                    continue
-
-                task_callback.__call__(edge_task, task_result)
-
             if task_status == 'FAILURE':
                 log.error(u'Edge task id {} returned FAILURE'.format(edge_task.task_id))
+
+                continue
+
+            log.info(
+                u'Received SUCCESS on task {0} id {1}'.format(
+                    edge_task.task_name,
+                    edge_task.task_id
+                )
+            )
+
+            task_callback = self.get_task_callback(edge_task.task_name)
+
+            if not task_callback:
+                self.update_edge_task_status(edge_task.task_id, task_status)
+
+                continue
+
+            task_callback.__call__(edge_task, task_result)
 
             self.update_edge_task_status(edge_task.task_id, task_status)
 
@@ -701,3 +718,33 @@ class EdgeController(object):
             return None
 
         self.create_edge_task(edge_bot.id, edge_server.id, response)
+
+    def get_recommended_tx_fee(self):
+        log.info(u'Getting recommended tx Fee')
+
+        try:
+            req = requests.get('https://bitcoinfees.21.co/api/v1/fees/recommended', timeout=(10.0, 20.0))
+        except requests.exceptions.Timeout:
+            log.error(u'Fee API timed out')
+
+            return 0
+        except Exception, e:
+            log.error(u'Unable to contact Fee API, raised: {}'.format(e))
+
+            return 0
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact Fee APi, received status code {}'.format(req.status_code))
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from Fee API, received {}'.format(req.text))
+
+            return 0
+
+        tx_in_btc = decimal.Decimal(response.get('fastestFee')) / decimal.Decimal(100000000.0)
+
+        log.info(u'Fee is set to {}'.format(tx_in_btc))
+
+        return str(tx_in_btc)
