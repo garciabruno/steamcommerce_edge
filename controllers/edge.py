@@ -466,7 +466,7 @@ class EdgeController(object):
             last_health_check=datetime.datetime.now()
         ).where(
             self.edge_server_model.id == edge_server_id
-        )
+        ).execute()
 
     def edge_server_is_healthy(self, edge_server):
         url = self.get_edge_api_url(edge_server.ip_address, 'healthcheck')
