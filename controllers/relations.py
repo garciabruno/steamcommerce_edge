@@ -141,6 +141,7 @@ class RelationController(object):
             if (
                 userrequest.promotion and
                 not userrequest.paid_before_promotion_end_date and
+                not userrequest.informed and
                 userrequest.expiration_date and
                 userrequest.expiration_date < datetime.datetime.now()
             ):
