@@ -390,6 +390,15 @@ class EdgeController(object):
             task_callback = self.get_task_callback(edge_task.task_name)
 
             if not task_callback:
+                log.error(u'Could not find a callback for task {}'.format(edge_task.task_name))
+
+                self.update_edge_task_status(edge_task.task_id, task_status)
+
+                continue
+
+            if not task_result:
+                log.error(u'Received SUCCESS from task id {} but no result was found'.format(edge_task.task_id))
+
                 self.update_edge_task_status(edge_task.task_id, task_status)
 
                 continue
