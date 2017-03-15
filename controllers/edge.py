@@ -346,8 +346,12 @@ class EdgeController(object):
 
     def process_pending_tasks(self):
         edge_tasks = self.get_pending_tasks()
+        tasks_count = edge_tasks.count()
 
-        log.info(u'Processing {} pending tasks'.format(edge_tasks.count()))
+        if not tasks_count:
+            return None
+
+        log.info(u'Processing {} pending tasks'.format(tasks_count))
 
         for edge_task in edge_tasks:
             log.info(
