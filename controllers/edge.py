@@ -266,7 +266,7 @@ class EdgeController(object):
 
         log.info(
             u'Invoice BTC price is {0} (${1} {2}) to address {3}'.format(
-                data.get('btcPrice'),
+                data.get('btcDue'),
                 data.get('price'),
                 data.get('currency'),
                 data.get('bitcoinAddress')
@@ -279,7 +279,7 @@ class EdgeController(object):
 
         primary_account = client.get_primary_account()
 
-        if float(primary_account.get('balance').get('amount')) < float(data.get('btcPrice')):
+        if float(primary_account.get('balance').get('amount')) < float(data.get('btcDue')):
             log.info(u'Insufficient Coinbase funds for transaction')
 
             self.set_edge_bot_status(
@@ -289,7 +289,7 @@ class EdgeController(object):
 
             return None
 
-        btc_amount = data.get('btcPrice')
+        btc_amount = data.get('btcDue')
         to_address = data.get('bitcoinAddress')
 
         log.info(
