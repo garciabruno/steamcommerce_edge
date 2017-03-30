@@ -112,12 +112,12 @@ class RelationController(object):
         paidrequest_relations = self.get_paidrequest_relations(
             user_id,
             enums.ERelationCommitment.Uncommited.value,
-            informed=informed
         )
 
         userrequest_relations = self.get_userrequest_relations(
             user_id,
-            enums.ERelationCommitment.Uncommited.value
+            enums.ERelationCommitment.Uncommited.value,
+            informed=informed
         )
 
         items = {}
