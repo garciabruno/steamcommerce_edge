@@ -25,21 +25,32 @@ class RelationController(object):
         elif relation_type == 'C':
             return self.paidrequest_relation_model.get(id=relation_id)
 
-    def get_userrequest_relations(self, user_id, commitment_level, eq=True):
+    def get_userrequest_relations(self, user_id, commitment_level, eq=True, informed=False):
         if eq:
             commitment_condition = self.userrequest_relation_model.commitment_level == commitment_level
         else:
             commitment_condition = self.userrequest_relation_model.commitment_level != commitment_level
 
+        if informed:
+            conditions = [
+                self.userrequest_model.informed == True,
+                self.userrequest_model.visible == True,
+                self.userrequest_model.accepted == False,
+                (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id),
+                self.userrequest_model.paid == False
+            ]
+        else:
+            conditions = [
+                self.userrequest_model.paid == True,
+                self.userrequest_model.visible == True,
+                self.userrequest_model.accepted == False,
+                (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id)
+            ]
+
         relations = self.userrequest_relation_model.select().where(
             commitment_condition,
             self.userrequest_relation_model.sent == False
-        ).join(self.userrequest_model).where(
-            self.userrequest_model.paid == True,
-            self.userrequest_model.visible == True,
-            self.userrequest_model.accepted == False,
-            (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id)
-        )
+        ).join(self.userrequest_model).where(*conditions)
 
         return relations
 
@@ -61,10 +72,11 @@ class RelationController(object):
 
         return relations
 
-    def get_commited_sub_ids(self, user_id):
+    def get_commited_sub_ids(self, user_id, informed=False):
         userrequest_relations = self.get_userrequest_relations(
             user_id,
-            enums.ERelationCommitment.AddedToCart.value
+            enums.ERelationCommitment.AddedToCart.value,
+            informed=informed
         )
 
         paidrequest_relations = self.get_paidrequest_relations(
@@ -96,10 +108,11 @@ class RelationController(object):
 
         return subids
 
-    def get_uncommited_relations(self, user_id):
+    def get_uncommited_relations(self, user_id, informed=False):
         paidrequest_relations = self.get_paidrequest_relations(
             user_id,
-            enums.ERelationCommitment.Uncommited.value
+            enums.ERelationCommitment.Uncommited.value,
+            informed=informed
         )
 
         userrequest_relations = self.get_userrequest_relations(
