@@ -16,7 +16,7 @@ if __name__ == '__main__':
             payment_method=config.PAYMENT_METHOD
         )
 
-        edge_controller.push_relations()
+        edge_controller.push_relations(informed=config.USE_INFORMED)
     except IOError:
         rollbar.report_message('Got an IOError in the main loop', 'warning')
     except:
