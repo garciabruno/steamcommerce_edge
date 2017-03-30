@@ -579,8 +579,8 @@ class EdgeController(object):
 
         relations.RelationController().assign_requests_to_user(self.owner_id, items)
 
-    def push_relations(self):
-        items = relations.RelationController().get_uncommited_relations(self.owner_id)
+    def push_relations(self, informed=False):
+        items = relations.RelationController().get_uncommited_relations(self.owner_id, informed=informed)
 
         if not len(items.keys()):
             log.info(u'No pending relations found')
