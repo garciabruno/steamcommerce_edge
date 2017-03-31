@@ -17,6 +17,7 @@ if __name__ == '__main__':
         )
 
         edge_controller.push_relations(informed=config.USE_INFORMED)
+        edge_controller.push_relations(informed=config.USE_INFORMED, anticheat_policy=True)
     except IOError:
         rollbar.report_message('Got an IOError in the main loop', 'warning')
     except:
