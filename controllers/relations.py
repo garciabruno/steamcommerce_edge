@@ -108,7 +108,7 @@ class RelationController(object):
 
         return subids
 
-    def get_uncommited_relations(self, user_id, informed=False):
+    def get_uncommited_relations(self, user_id, informed=False, anticheat_policy=False):
         paidrequest_relations = self.get_paidrequest_relations(
             user_id,
             enums.ERelationCommitment.Uncommited.value,
@@ -135,6 +135,12 @@ class RelationController(object):
                 continue
 
             if not currency_code:
+                continue
+
+            if (
+                not anticheat_policy and product.has_anticheat or
+                anticheat_policy and not product.has_anticheat
+            ):
                 continue
 
             if currency_code not in items.keys():
@@ -171,6 +177,12 @@ class RelationController(object):
                 continue
 
             if not currency_code:
+                continue
+
+            if (
+                not anticheat_policy and product.has_anticheat or
+                anticheat_policy and not product.has_anticheat
+            ):
                 continue
 
             if currency_code not in items.keys():
