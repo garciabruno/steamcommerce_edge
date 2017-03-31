@@ -579,8 +579,12 @@ class EdgeController(object):
 
         relations.RelationController().assign_requests_to_user(self.owner_id, items)
 
-    def push_relations(self, informed=False):
-        items = relations.RelationController().get_uncommited_relations(self.owner_id, informed=informed)
+    def push_relations(self, informed=False, anticheat_policy=False):
+        items = relations.RelationController().get_uncommited_relations(
+            self.owner_id,
+            informed=informed,
+            anticheat_policy=anticheat_policy
+        )
 
         if not len(items.keys()):
             log.info(u'No pending relations found')
@@ -588,7 +592,13 @@ class EdgeController(object):
         for currency_code in items.keys():
             log.info(u'Processing relations for currency {}'.format(currency_code))
 
-            edge_bot = self.get_edge_bot_for_currency(currency_code)
+            if anticheat_policy:
+                edge_bot = self.get_edge_bot_for_currency(
+                    currency_code,
+                    bot_type=enums.EEdgeBotType.AntiCheatPurchases
+                )
+            else:
+                edge_bot = self.get_edge_bot_for_currency(currency_code)
 
             if not edge_bot:
                 log.info(u'No available edge bot found for currency {}'.format(currency_code))
