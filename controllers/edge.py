@@ -4,17 +4,18 @@
 import re
 import time
 import json
-import decimal
 import requests
 import datetime
 
 import enums
 import config
-from controllers import relations
+
+from controllers.relations import RelationController
 
 from steamcommerce_api.api import logger
 from steamcommerce_api.core import models
 
+from steam import SteamID
 from steam.enums import EResult
 from coinbase.wallet.client import Client
 
@@ -22,11 +23,11 @@ log = logger.Logger('edge.controller', 'edge.controller.log').get_logger()
 
 
 class EdgeController(object):
-    def __init__(self, owner_id, giftee_account_id, payment_method='steamaccount'):
+    def __init__(self, owner_id, payment_method='steamaccount'):
         self.owner_id = owner_id
-        self.giftee_account_id = giftee_account_id
         self.payment_method = payment_method
 
+        self.user_model = models.User
         self.edge_bot_model = models.EdgeBot
         self.edge_task_model = models.EdgeTask
         self.edge_server_model = models.EdgeServer
@@ -70,13 +71,13 @@ class EdgeController(object):
         failed_items = task_result.get('failed_items')
         failed_shopping_cart_gids = task_result.get('failed_shopping_cart_gids')
 
-        relations.RelationController().rollback_pushed_relations(edge_task.task_id)
+        RelationController().rollback_pushed_relations(edge_task.task_id)
 
         if len(failed_shopping_cart_gids):
             log.info(u'Received a list of previously commited shoppingCartGID that failed')
 
             for shopping_cart_gid in failed_shopping_cart_gids:
-                relations.RelationController().rollback_failed_relations(shopping_cart_gid)
+                RelationController().rollback_failed_relations(shopping_cart_gid)
 
         if len(failed_items):
             log.info(u'Received a list of relations that fail to add to cart')
@@ -85,7 +86,7 @@ class EdgeController(object):
                 relation_type = item.get('relation_type')
                 relation_id = item.get('relation_id')
 
-                relations.RelationController().set_relation_commitment(
+                RelationController().set_relation_commitment(
                     relation_type,
                     relation_id,
                     enums.ERelationCommitment.FailedToAddToCart.value,
@@ -101,7 +102,7 @@ class EdgeController(object):
             relation_type = item.get('relation_type')
             relation_id = item.get('relation_id')
 
-            relations.RelationController().set_relation_commitment(
+            RelationController().set_relation_commitment(
                 relation_type,
                 relation_id,
                 enums.ERelationCommitment.AddedToCart.value,
@@ -109,12 +110,22 @@ class EdgeController(object):
             )
 
         if len(succesful_items):
-            self.call_checkout(edge_task.edge_bot, edge_task.edge_server)
+            # Assume there is one cart-push per user, so just grab the first on the list
 
-        self.set_edge_bot_status(
-            edge_task.edge_bot.network_id,
-            enums.EEdgeBotStatus.StandingBy.value
-        )
+            user_id = succesful_items[0].get('user_id')
+            user = self.user_model.get(id=user_id)
+            account_id = SteamID(user.steam).as_32
+
+            self.call_checkout(
+                edge_task.edge_bot,
+                edge_task.edge_server,
+                account_id
+            )
+        else:
+            self.set_edge_bot_status(
+                edge_task.edge_bot.network_id,
+                enums.EEdgeBotStatus.StandingBy.value
+            )
 
     def process_cart_checkout(self, edge_task, task_result):
         if type(task_result) is int:
@@ -171,7 +182,7 @@ class EdgeController(object):
                 if payment_method == 'bitcoin':
                     self.get_transaction_link(edge_task.edge_bot, edge_task.edge_server, transid)
                 elif payment_method == 'steamaccount':
-                    relations.RelationController().commit_purchased_relations(shopping_cart_gid)
+                    RelationController().commit_purchased_relations(shopping_cart_gid)
 
                     self.set_edge_bot_status(
                         edge_task.edge_bot.network_id,
@@ -274,9 +285,6 @@ class EdgeController(object):
         )
 
         client = Client(config.COINBASE_API_KEY, config.COINBASE_API_SECRET)
-
-        log.info(u'Getting primary Coinbase account')
-
         primary_account = client.get_primary_account()
 
         if float(primary_account.get('balance').get('amount')) < float(data.get('btcDue')):
@@ -326,14 +334,13 @@ class EdgeController(object):
             )
         )
 
+        RelationController().commit_purchased_relations(shopping_cart_gid)
+        self.reset_shopping_cart(edge_task.edge_bot, edge_task.edge_server)
+
         self.set_edge_bot_status(
             edge_task.edge_bot.network_id,
             enums.EEdgeBotStatus.StandingBy.value
         )
-
-        relations.RelationController().commit_purchased_relations(shopping_cart_gid)
-
-        self.reset_shopping_cart(edge_task.edge_bot, edge_task.edge_server)
 
     def get_task_callback(self, task_name):
         callbacks = {
@@ -460,6 +467,17 @@ class EdgeController(object):
         except self.edge_server_model.DoesNotExist:
             return None
 
+    def get_edge_bot_by_network_id(self, network_id):
+        try:
+            return self.edge_bot_model.get(
+                network_id=network_id,
+                status=enums.EEdgeBotStatus.StandingBy
+            )
+        except self.edge_bot_model.DoesNotExist:
+            pass
+
+        return None
+
     def get_edge_bot_for_currency(self, currency_code, bot_type=enums.EEdgeBotType.Purchases):
         try:
             return self.edge_bot_model.get(
@@ -468,10 +486,15 @@ class EdgeController(object):
                 bot_type=bot_type
             )
         except self.edge_bot_model.DoesNotExist:
-            return None
+            pass
+
+        return None
 
     def get_edge_api_url(self, ip_address, endpoint_name):
         return 'http://{0}/edge/{1}'.format(ip_address, endpoint_name)
+
+    def get_isteamuser_api_url(self, ip_address, endpoint_name):
+        return 'http://{0}/ISteamUser/{1}/'.format(ip_address, endpoint_name)
 
     def update_edge_server_healthy_check(self, edge_server_id):
         return self.edge_server_model.update(
@@ -514,6 +537,46 @@ class EdgeController(object):
             self.edge_bot_model.network_id == network_id
         ).execute()
 
+    def get_edge_bot_friends_list(self, edge_bot, edge_server):
+        log.info(
+            u'Getting FriendsList for edge bot with network id {0} through edge server #{1}'.format(
+                edge_bot.network_id,
+                edge_server.id
+            )
+        )
+
+        url = self.get_isteamuser_api_url(edge_server.ip_address, 'GetFriendsList')
+        params = {'network_id': edge_bot.network_id, 'ids': 1}
+
+        try:
+            req = requests.get(
+                url,
+                params=params,
+                timeout=(10.0, 20.0)
+            )
+        except requests.exceptions.Timeout:
+            log.error(u'Edge server #{} timed out'.format(edge_server.id))
+
+            return False
+        except Exception, e:
+            log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            return False
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            return False
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from edge server, received {}'.format(req.text))
+
+            return None
+
+        return response
+
     def push_relations_to_edge_bot(self, edge_bot, edge_server, items):
         log.info(
             u'Pushing {0} relations to edge bot with network id {1} through edge server #{2}'.format(
@@ -530,19 +593,39 @@ class EdgeController(object):
             'items': json.dumps(items)
         }
 
+        self.set_edge_bot_status(
+            edge_bot.network_id,
+            enums.EEdgeBotStatus.PushingItemsToCart.value
+        )
+
         try:
             req = requests.post(url, data=data, timeout=(10.0, 20.0))
         except requests.exceptions.Timeout:
             log.error(u'Edge server {} timed out'.format(edge_server.id))
 
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
             return None
         except Exception, e:
             log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
 
             return None
 
         if req.status_code != 200:
             log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
 
             return None
 
@@ -561,89 +644,40 @@ class EdgeController(object):
                 )
             )
 
-            return None
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
 
-        self.set_edge_bot_status(
-            edge_bot.network_id,
-            enums.EEdgeBotStatus.PushingItemsToCart.value
-        )
+            return None
 
         self.create_edge_task(edge_bot.id, edge_server.id, response)
 
-        relations.RelationController().commit_relations(
+        RelationController().commit_relations(
             items,
             commited_on_bot=edge_bot.network_id,
             task_id=response.get('task_id'),
             commitment_level=enums.ERelationCommitment.PushedToCart.value
         )
 
-        relations.RelationController().assign_requests_to_user(self.owner_id, items)
+        RelationController().assign_requests_to_user(self.owner_id, items)
 
-    def push_relations(self, informed=False, anticheat_policy=False):
-        items = relations.RelationController().get_uncommited_relations(
-            self.owner_id,
-            informed=informed,
-            anticheat_policy=anticheat_policy
-        )
-
-        if not len(items.keys()):
-            log.info(u'No pending relations found')
-
-        for currency_code in items.keys():
-            log.info(u'Processing relations for currency {}'.format(currency_code))
-
-            if anticheat_policy:
-                edge_bot = self.get_edge_bot_for_currency(
-                    currency_code,
-                    bot_type=enums.EEdgeBotType.AntiCheatPurchases
-                )
-            else:
-                edge_bot = self.get_edge_bot_for_currency(currency_code)
-
-            if not edge_bot:
-                log.info(u'No available edge bot found for currency {}'.format(currency_code))
-
-                continue
-
-            log.info(
-                u'Edge Bot with network id {0} selected for currency {1}'.format(
-                    edge_bot.network_id,
-                    currency_code
-                )
-            )
-
-            edge_server = self.get_edge_server_for_currency(currency_code)
-
-            if not edge_server:
-                log.info(u'Not available edge server found for currency {}'.format(currency_code))
-
-                continue
-
-            if not self.edge_server_is_healthy(edge_server):
-                log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
-
-                continue
-
-            self.push_relations_to_edge_bot(edge_bot, edge_server, items[currency_code])
-
-    def call_checkout(self, edge_bot, edge_server):
+    def get_add_friends_result(self, edge_bot, edge_server):
         log.info(
-            u'Calling checkout to edge bot with network id {0} through edge server #{1}'.format(
+            u'Getting friend add results on edge bot with network_id {1} through edge server {2}'.format(
                 edge_bot.network_id,
                 edge_server.id
             )
         )
 
-        url = self.get_edge_api_url(edge_server.ip_address, 'cart/checkout/')
+        url = self.get_isteamuser_api_url(edge_server.ip_address, 'GetFriendAddResults')
 
-        data = {
-            'network_id': edge_bot.network_id,
-            'giftee_account_id': self.giftee_account_id,
-            'payment_method': self.payment_method
+        params = {
+            'network_id': edge_bot.network_id
         }
 
         try:
-            req = requests.post(url, data=data, timeout=(10.0, 20.0))
+            req = requests.get(url, params=params, timeout=(10.0, 20.0))
         except requests.exceptions.Timeout:
             log.error(u'Edge server {} timed out'.format(edge_server.id))
 
@@ -665,7 +699,261 @@ class EdgeController(object):
 
             return None
 
-        self.set_edge_bot_status(edge_bot.network_id, enums.EEdgeBotStatus.PurchasingCart.value)
+        return response
+
+    def send_invitation(self, edge_bot, edge_server, steam_id):
+        log.info(
+            u'Adding SteamID {0} on edge bot with network_id {1} through edge server {2}'.format(
+                steam_id,
+                edge_bot.network_id,
+                edge_server.id
+            )
+        )
+
+        url = self.get_isteamuser_api_url(edge_server.ip_address, 'AddFriend')
+
+        params = {
+            'steam_id': steam_id,
+            'network_id': edge_bot.network_id
+        }
+
+        try:
+            req = requests.get(url, params=params, timeout=(10.0, 20.0))
+        except requests.exceptions.Timeout:
+            log.error(u'Edge server {} timed out'.format(edge_server.id))
+
+            return None
+        except Exception, e:
+            log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            return None
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            return None
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from edge server, received {}'.format(req.text))
+
+            return None
+
+        if '0' in response.keys():
+            log.error(u'Edge bot with network id {} friendlist is full!'.format(edge_bot.network_id))
+
+            return False
+
+        return response
+
+    def send_invitations(self, anticheat_policy=False):
+        items = RelationController().get_relations(
+            self.owner_id,
+            enums.ERelationCommitment.Uncommited.value,
+            anticheat_policy=anticheat_policy
+        )
+
+        if not len(items.keys()):
+            log.info(u'No Uncommited relations found to send invitations')
+
+        edge_bots_friendslists = {}
+
+        for user_id in items.keys():
+            for currency_code in items[user_id].keys():
+                log.info(u'Processing relations for currency {}'.format(currency_code))
+
+                if anticheat_policy:
+                    edge_bot = self.get_edge_bot_for_currency(
+                        currency_code,
+                        bot_type=enums.EEdgeBotType.AntiCheatPurchases
+                    )
+                else:
+                    edge_bot = self.get_edge_bot_for_currency(currency_code)
+
+                if not edge_bot:
+                    log.info(u'No available edge bot found for currency {}'.format(currency_code))
+
+                    continue
+
+                log.info(
+                    u'Edge Bot with network id {0} selected for currency {1}'.format(
+                        edge_bot.network_id,
+                        currency_code
+                    )
+                )
+
+                edge_server = self.get_edge_server_for_currency(currency_code)
+
+                if not edge_server:
+                    log.info(u'Not available edge server found for currency {}'.format(currency_code))
+
+                    continue
+
+                if not self.edge_server_is_healthy(edge_server):
+                    log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
+
+                    continue
+
+                if not edge_bots_friendslists.get(edge_bot.network_id):
+                    friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
+
+                    if not friendslist:
+                        continue
+
+                    edge_bots_friendslists[edge_bot.network_id] = friendslist
+
+                user = self.user_model.get(id=user_id)
+
+                if int(user.steam) not in edge_bots_friendslists[edge_bot.network_id]:
+                    invitation_result = self.send_invitation(edge_bot, edge_server, user.steam)
+
+                    if not invitation_result:
+                        # TODO: EdgeBot's friendlist is full, clean it!
+
+                        continue
+
+                RelationController().commit_relations(
+                    items[user_id][currency_code],
+                    commited_on_bot=edge_bot.network_id,
+                    commitment_level=enums.ERelationCommitment.WaitingForInviteAccept.value
+                )
+
+    def push_relations(self, anticheat_policy=False):
+        items = RelationController().get_relations(
+            self.owner_id,
+            enums.ERelationCommitment.WaitingForInviteAccept.value,
+            anticheat_policy=anticheat_policy
+        )
+
+        if not len(items.keys()):
+            log.info(u'No WaitingForInviteAccept pending relations found')
+
+        for user_id in items.keys():
+            for currency_code in items[user_id].keys():
+                for item in items[user_id][currency_code]:
+                    relation = RelationController().get_relation(
+                        item.get('relation_type'),
+                        item.get('relation_id')
+                    )
+
+                    if not relation.commited_on_bot:
+                        # This relation does not belong to any bot. Weird?
+
+                        continue
+
+                    edge_bot = self.get_edge_bot_by_network_id(relation.commited_on_bot)
+
+                    if not edge_bot:
+                        log.info(u'No available edge bot found for currency {}'.format(currency_code))
+
+                        continue
+
+                    log.info(
+                        u'Edge Bot with network id {0} selected for currency {1}'.format(
+                            edge_bot.network_id,
+                            currency_code
+                        )
+                    )
+
+                    # For now assume there is only one EdgeServer per currency
+
+                    edge_server = self.get_edge_server_for_currency(currency_code)
+
+                    if not edge_server:
+                        log.info(u'Not available edge server found for currency {}'.format(currency_code))
+
+                        continue
+
+                    if not self.edge_server_is_healthy(edge_server):
+                        log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
+
+                        continue
+
+                    friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
+
+                    if not friendslist:
+                        # TODO: EdgeBot's friendlist is full. Clean it
+
+                        continue
+
+                    user = self.user_model.get(id=user_id)
+
+                    if int(user.steam) not in friendslist:
+                        continue
+
+                    # User is EdgeBot's friendslist
+
+                    self.push_relations_to_edge_bot(
+                        edge_bot,
+                        edge_server,
+                        items[user_id][currency_code]
+                    )
+
+    def call_checkout(self, edge_bot, edge_server, account_id):
+        log.info(
+            u'Calling checkout to edge bot with network id {0} through edge server #{1}'.format(
+                edge_bot.network_id,
+                edge_server.id
+            )
+        )
+
+        self.set_edge_bot_status(
+            edge_bot.network_id,
+            enums.EEdgeBotStatus.PurchasingCart.value
+        )
+
+        url = self.get_edge_api_url(edge_server.ip_address, 'cart/checkout/')
+
+        data = {
+            'network_id': edge_bot.network_id,
+            'giftee_account_id': account_id,
+            'payment_method': self.payment_method
+        }
+
+        try:
+            req = requests.post(url, data=data, timeout=(10.0, 20.0))
+        except requests.exceptions.Timeout:
+            log.error(u'Edge server {} timed out'.format(edge_server.id))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+        except Exception, e:
+            log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from edge server, received {}'.format(req.text))
+
+            self.set_edge_bot_status(
+                edge_bot.network_id,
+                enums.EEdgeBotStatus.BlockedForUnknownReason.value
+            )
+
+            return None
+
         self.create_edge_task(edge_bot.id, edge_server.id, response)
 
     def get_transaction_link(self, edge_bot, edge_server, transid):
@@ -740,33 +1028,3 @@ class EdgeController(object):
             return None
 
         self.create_edge_task(edge_bot.id, edge_server.id, response)
-
-    def get_recommended_tx_fee(self):
-        log.info(u'Getting recommended tx Fee')
-
-        try:
-            req = requests.get('https://bitcoinfees.21.co/api/v1/fees/recommended', timeout=(10.0, 20.0))
-        except requests.exceptions.Timeout:
-            log.error(u'Fee API timed out')
-
-            return 0
-        except Exception, e:
-            log.error(u'Unable to contact Fee API, raised: {}'.format(e))
-
-            return 0
-
-        if req.status_code != 200:
-            log.error(u'Unable to contact Fee APi, received status code {}'.format(req.status_code))
-
-        try:
-            response = req.json()
-        except ValueError:
-            log.error(u'Unable to serialize response from Fee API, received {}'.format(req.text))
-
-            return 0
-
-        tx_in_btc = decimal.Decimal(180 * response.get('fastestFee')) / decimal.Decimal(100000000.0)
-
-        log.info(u'Fee is set to {}'.format(tx_in_btc))
-
-        return str(tx_in_btc)
