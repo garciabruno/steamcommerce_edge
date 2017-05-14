@@ -25,27 +25,18 @@ class RelationController(object):
         elif relation_type == 'C':
             return self.paidrequest_relation_model.get(id=relation_id)
 
-    def get_userrequest_relations(self, user_id, commitment_level, eq=True, informed=False):
+    def get_userrequest_relations(self, user_id, commitment_level, eq=True):
         if eq:
             commitment_condition = self.userrequest_relation_model.commitment_level == commitment_level
         else:
             commitment_condition = self.userrequest_relation_model.commitment_level != commitment_level
 
-        if informed:
-            conditions = [
-                self.userrequest_model.informed == True,
-                self.userrequest_model.visible == True,
-                self.userrequest_model.accepted == False,
-                (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id),
-                self.userrequest_model.paid == False
-            ]
-        else:
-            conditions = [
-                self.userrequest_model.paid == True,
-                self.userrequest_model.visible == True,
-                self.userrequest_model.accepted == False,
-                (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id)
-            ]
+        conditions = [
+            self.userrequest_model.paid == True,
+            self.userrequest_model.visible == True,
+            self.userrequest_model.accepted == False,
+            (self.userrequest_model.assigned == None) | (self.userrequest_model.assigned == user_id)
+        ]
 
         relations = self.userrequest_relation_model.select().where(
             commitment_condition,
@@ -60,68 +51,33 @@ class RelationController(object):
         else:
             commitment_condition = self.paidrequest_relation_model.commitment_level != commitment_level
 
-        relations = self.paidrequest_relation_model.select().where(
-            commitment_condition,
-            self.paidrequest_relation_model.sent == False
-        ).join(self.paidrequest_model).where(
+        conditions = [
             self.paidrequest_model.authed == True,
             self.paidrequest_model.visible == True,
             self.paidrequest_model.accepted == False,
             (self.paidrequest_model.assigned == None) | (self.paidrequest_model.assigned == user_id)
-        )
+        ]
+
+        relations = self.paidrequest_relation_model.select().where(
+            commitment_condition,
+            self.paidrequest_relation_model.sent == False
+        ).join(self.paidrequest_model).where(*conditions)
 
         return relations
 
-    def get_commited_sub_ids(self, user_id, informed=False):
-        userrequest_relations = self.get_userrequest_relations(
-            user_id,
-            enums.ERelationCommitment.AddedToCart.value,
-            informed=informed
-        )
-
+    def get_relations(self, user_id, commitment_level, anticheat_policy=False):
         paidrequest_relations = self.get_paidrequest_relations(
             user_id,
-            enums.ERelationCommitment.AddedToCart.value
-        )
-
-        subids = []
-
-        for relation in userrequest_relations:
-            product = relation.product
-
-            sub_id = product.sub_id or product.store_sub_id
-
-            if not sub_id or sub_id in subids:
-                continue
-
-            subids.append(sub_id)
-
-        for relation in paidrequest_relations:
-            product = relation.product
-
-            sub_id = product.sub_id or product.store_sub_id
-
-            if not sub_id or sub_id in subids:
-                continue
-
-            subids.append(sub_id)
-
-        return subids
-
-    def get_uncommited_relations(self, user_id, informed=False, anticheat_policy=False):
-        paidrequest_relations = self.get_paidrequest_relations(
-            user_id,
-            enums.ERelationCommitment.Uncommited.value,
+            commitment_level,
         )
 
         userrequest_relations = self.get_userrequest_relations(
             user_id,
-            enums.ERelationCommitment.Uncommited.value,
-            informed=informed
+            commitment_level
         )
 
         items = {}
-        commited_subids = self.get_commited_sub_ids(user_id)
+        commited_sub_ids = {}
 
         for relation in paidrequest_relations:
             product = relation.product
@@ -131,7 +87,7 @@ class RelationController(object):
 
             # TODO: Send product.id to re-crawl store_sub_id
 
-            if not sub_id or sub_id in commited_subids:
+            if not sub_id:
                 continue
 
             if not currency_code:
@@ -143,16 +99,28 @@ class RelationController(object):
             ):
                 continue
 
-            if currency_code not in items.keys():
-                items[currency_code] = []
+            user_id = relation.request.user.id
 
-            commited_subids.append(sub_id)
+            if user_id not in items.keys():
+                items[user_id] = {}
 
-            items[currency_code].append({
+            if currency_code not in items[user_id].keys():
+                items[user_id][currency_code] = []
+
+            if user_id not in commited_sub_ids.keys():
+                commited_sub_ids[user_id] = []
+
+            if sub_id in commited_sub_ids[user_id]:
+                continue
+
+            items[user_id][currency_code].append({
                 'sub_id': sub_id,
+                'user_id': user_id,
                 'relation_type': 'C',
                 'relation_id': relation.id
             })
+
+            commited_sub_ids[user_id].append(sub_id)
 
         for relation in userrequest_relations:
             userrequest = relation.request
@@ -173,7 +141,7 @@ class RelationController(object):
 
             # TODO: Send product.id to re-crawl store_sub_id
 
-            if not sub_id or sub_id in commited_subids:
+            if not sub_id:
                 continue
 
             if not currency_code:
@@ -185,16 +153,27 @@ class RelationController(object):
             ):
                 continue
 
-            if currency_code not in items.keys():
-                items[currency_code] = []
+            user_id = relation.request.user.id
 
-            commited_subids.append(sub_id)
+            if user_id not in items.keys():
+                items[user_id] = {}
 
-            items[currency_code].append({
+            if currency_code not in items[user_id].keys():
+                items[user_id][currency_code] = []
+
+            if user_id not in commited_sub_ids.keys():
+                commited_sub_ids[user_id] = []
+
+            if sub_id in commited_sub_ids[user_id]:
+                continue
+
+            items[user_id][currency_code].append({
                 'sub_id': sub_id,
                 'relation_type': 'A',
                 'relation_id': relation.id
             })
+
+            commited_sub_ids[user_id].append(sub_id)
 
         return items
 
@@ -298,7 +277,7 @@ class RelationController(object):
             elif relation_type == 'C':
                 paidrequest.PaidRequest().assign(relation.request.id, owner_id)
 
-    def commit_purchased_relations(self, shopping_cart_gid):
+    def commit_purchased_relations(self, shopping_cart_gid, owner_id):
         userrequest_relations = self.userrequest_relation_model.select().where(
             self.userrequest_relation_model.shopping_cart_gid == shopping_cart_gid
         )
@@ -308,7 +287,42 @@ class RelationController(object):
         )
 
         for relation in userrequest_relations:
-            self.set_relation_commitment('A', relation.id, enums.ERelationCommitment.Purchased.value)
+            self.set_relation_commitment(
+                'A',
+                relation.id,
+                enums.ERelationCommitment.Purchased.value
+            )
+
+            userrequest.UserRequest().set_sent(relation.id)
+
+            if not relation.request.assigned:
+                userrequest.UserRequest().assign(relation.request.id, owner_id)
 
         for relation in paidrequest_relations:
-            self.set_relation_commitment('C', relation.id, enums.ERelationCommitment.Purchased.value)
+            self.set_relation_commitment(
+                'C',
+                relation.id,
+                enums.ERelationCommitment.Purchased.value
+            )
+
+            paidrequest.PaidRequest().set_sent(relation.id)
+
+            if not relation.request.assigned:
+                paidrequest.PaidRequest().assign(relation.request.id, owner_id)
+
+        paidrequests = paidrequest.PaidRequest().get_paid_query()
+        userrequests = userrequest.UserRequest().get_paid_query()
+
+        for paidrequest_data in paidrequests:
+            if (
+                paidrequest_data.products.filter(sent=False).count() == 0 and
+                paidrequest_data.assigned.id == owner_id
+            ):
+                paidrequest.PaidRequest().accept_paidrequest(paidrequest_data.id, owner_id)
+
+        for userrequest_data in userrequests:
+            if (
+                userrequest_data.products.filter(sent=False).count() == 0 and
+                userrequest_data.assigned.id == owner_id
+            ):
+                userrequest.UserRequest().accept_userrequest(userrequest_data.id, owner_id)
