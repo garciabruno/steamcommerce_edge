@@ -12,7 +12,6 @@ if __name__ == '__main__':
     try:
         edge_controller = edge.EdgeController(
             config.OWNER_ID,
-            config.GIFTEE_ACCOUNT_ID,
             payment_method=config.PAYMENT_METHOD
         )
 
