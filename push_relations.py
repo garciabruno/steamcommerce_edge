@@ -12,12 +12,14 @@ if __name__ == '__main__':
     try:
         edge_controller = edge.EdgeController(
             config.OWNER_ID,
-            config.GIFTEE_ACCOUNT_ID,
             payment_method=config.PAYMENT_METHOD
         )
 
-        edge_controller.push_relations(informed=config.USE_INFORMED)
-        edge_controller.push_relations(informed=config.USE_INFORMED, anticheat_policy=True)
+        edge_controller.send_invitations()
+        edge_controller.push_relations()
+
+        edge_controller.send_invitations(anticheat_policy=True)
+        edge_controller.push_relations(anticheat_policy=True)
     except IOError:
         rollbar.report_message('Got an IOError in the main loop', 'warning')
     except:
