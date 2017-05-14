@@ -182,7 +182,7 @@ class EdgeController(object):
                 if payment_method == 'bitcoin':
                     self.get_transaction_link(edge_task.edge_bot, edge_task.edge_server, transid)
                 elif payment_method == 'steamaccount':
-                    RelationController().commit_purchased_relations(shopping_cart_gid)
+                    RelationController().commit_purchased_relations(shopping_cart_gid, self.owner_id)
 
                     self.set_edge_bot_status(
                         edge_task.edge_bot.network_id,
