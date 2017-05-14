@@ -10,6 +10,7 @@ class ERelationCommitment(IntEnum):
     Purchased = 2
     FailedToAddToCart = 3
     PushedToCart = 4
+    WaitingForInviteAccept = 5
 
 
 class EEdgeServerStatus(IntEnum):
