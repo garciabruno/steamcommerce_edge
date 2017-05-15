@@ -866,7 +866,6 @@ class EdgeController(object):
 
                     if not invitation_result:
                         # TODO: EdgeBot's friendlist is full, clean it!
-
                         continue
 
                 RelationController().commit_relations(
@@ -884,6 +883,8 @@ class EdgeController(object):
 
         if not len(items.keys()):
             log.info(u'No WaitingForInviteAccept pending relations found')
+
+        edge_bots_friendslists = {}
 
         for user_id in items.keys():
             for currency_code in items[user_id].keys():
@@ -930,16 +931,20 @@ class EdgeController(object):
 
                     continue
 
-                friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
+                if not edge_bots_friendslists.get(edge_bot.network_id):
+                    log.info(u'Could not find cached FriendList')
 
-                if not friendslist:
-                    # TODO: EdgeBot's friendlist is full. Clean it
+                    friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
 
-                    continue
+                    if not friendslist:
+                        # TODO: EdgeBot's friendlist is full. Clean it
+                        continue
+
+                    edge_bots_friendslists[edge_bot.network_id] = friendslist
 
                 user = self.user_model.get(id=user_id)
 
-                if int(user.steam) not in friendslist:
+                if int(user.steam) not in edge_bots_friendslists[edge_bot.network_id]:
                     continue
 
                 # User is EdgeBot's friendslist
