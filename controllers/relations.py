@@ -169,6 +169,7 @@ class RelationController(object):
 
             items[user_id][currency_code].append({
                 'sub_id': sub_id,
+                'user_id': user_id,
                 'relation_type': 'A',
                 'relation_id': relation.id
             })
