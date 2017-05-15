@@ -334,7 +334,7 @@ class EdgeController(object):
             )
         )
 
-        RelationController().commit_purchased_relations(shopping_cart_gid)
+        RelationController().commit_purchased_relations(shopping_cart_gid, self.owner_id)
         self.reset_shopping_cart(edge_task.edge_bot, edge_task.edge_server)
 
         self.set_edge_bot_status(
