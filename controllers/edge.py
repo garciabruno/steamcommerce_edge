@@ -577,6 +577,46 @@ class EdgeController(object):
 
         return response
 
+    def get_edge_bot_sent_invitations(self, edge_bot, edge_server):
+        log.info(
+            u'Getting SentInvitations for edge bot with network id {0} through edge server #{1}'.format(
+                edge_bot.network_id,
+                edge_server.id
+            )
+        )
+
+        url = self.get_isteamuser_api_url(edge_server.ip_address, 'GetSentInvitations')
+        params = {'network_id': edge_bot.network_id, 'ids': 1}
+
+        try:
+            req = requests.get(
+                url,
+                params=params,
+                timeout=(10.0, 20.0)
+            )
+        except requests.exceptions.Timeout:
+            log.error(u'Edge server #{} timed out'.format(edge_server.id))
+
+            return False
+        except Exception, e:
+            log.error(u'Unable to contact edge server, raised {}'.format(e))
+
+            return False
+
+        if req.status_code != 200:
+            log.error(u'Unable to contact edge server, received status code {}'.format(req.status_code))
+
+            return False
+
+        try:
+            response = req.json()
+        except ValueError:
+            log.error(u'Unable to serialize response from edge server, received {}'.format(req.text))
+
+            return None
+
+        return response
+
     def push_relations_to_edge_bot(self, edge_bot, edge_server, items):
         log.info(
             u'Pushing {0} relations to edge bot with network id {1} through edge server #{2}'.format(
@@ -758,6 +798,7 @@ class EdgeController(object):
             log.info(u'No Uncommited relations found to send invitations')
 
         edge_bots_friendslists = {}
+        edge_bots_sent_invitations = {}
 
         for user_id in items.keys():
             for currency_code in items[user_id].keys():
@@ -796,6 +837,8 @@ class EdgeController(object):
                     continue
 
                 if not edge_bots_friendslists.get(edge_bot.network_id):
+                    log.info(u'Could not find cached FriendList')
+
                     friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
 
                     if not friendslist:
@@ -803,9 +846,22 @@ class EdgeController(object):
 
                     edge_bots_friendslists[edge_bot.network_id] = friendslist
 
+                if not edge_bots_sent_invitations.get(edge_bot.network_id):
+                    log.info(u'Could not find cached SentInvitations')
+
+                    sent_invitations = self.get_edge_bot_sent_invitations(edge_bot, edge_server)
+
+                    if not sent_invitations:
+                        continue
+
+                    edge_bots_sent_invitations[edge_bot.network_id] = sent_invitations
+
                 user = self.user_model.get(id=user_id)
 
-                if int(user.steam) not in edge_bots_friendslists[edge_bot.network_id]:
+                if (
+                    int(user.steam) not in edge_bots_friendslists[edge_bot.network_id] and
+                    int(user.steam) not in edge_bots_sent_invitations[edge_bot.network_id]
+                ):
                     invitation_result = self.send_invitation(edge_bot, edge_server, user.steam)
 
                     if not invitation_result:
