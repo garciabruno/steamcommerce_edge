@@ -831,64 +831,68 @@ class EdgeController(object):
 
         for user_id in items.keys():
             for currency_code in items[user_id].keys():
-                for item in items[user_id][currency_code]:
-                    relation = RelationController().get_relation(
-                        item.get('relation_type'),
-                        item.get('relation_id')
+                # TODO: Perpahs we should filter by commited_on_bot in WaitingForInviteAccept commitment
+                # {'user_id': {'currency': {'edge_bot_id': [items]}}}
+
+                item = items[user_id][currency_code][0]
+
+                relation = RelationController().get_relation(
+                    item.get('relation_type'),
+                    item.get('relation_id')
+                )
+
+                if not relation.commited_on_bot:
+                    # This relation does not belong to any bot. Weird?
+
+                    continue
+
+                edge_bot = self.get_edge_bot_by_network_id(relation.commited_on_bot)
+
+                if not edge_bot:
+                    log.info(u'No available edge bot found for currency {}'.format(currency_code))
+
+                    continue
+
+                log.info(
+                    u'Edge Bot with network id {0} selected for currency {1}'.format(
+                        edge_bot.network_id,
+                        currency_code
                     )
+                )
 
-                    if not relation.commited_on_bot:
-                        # This relation does not belong to any bot. Weird?
+                # For now assume there is only one EdgeServer per currency
 
-                        continue
+                edge_server = self.get_edge_server_for_currency(currency_code)
 
-                    edge_bot = self.get_edge_bot_by_network_id(relation.commited_on_bot)
+                if not edge_server:
+                    log.info(u'Not available edge server found for currency {}'.format(currency_code))
 
-                    if not edge_bot:
-                        log.info(u'No available edge bot found for currency {}'.format(currency_code))
+                    continue
 
-                        continue
+                if not self.edge_server_is_healthy(edge_server):
+                    log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
 
-                    log.info(
-                        u'Edge Bot with network id {0} selected for currency {1}'.format(
-                            edge_bot.network_id,
-                            currency_code
-                        )
-                    )
+                    continue
 
-                    # For now assume there is only one EdgeServer per currency
+                friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
 
-                    edge_server = self.get_edge_server_for_currency(currency_code)
+                if not friendslist:
+                    # TODO: EdgeBot's friendlist is full. Clean it
 
-                    if not edge_server:
-                        log.info(u'Not available edge server found for currency {}'.format(currency_code))
+                    continue
 
-                        continue
+                user = self.user_model.get(id=user_id)
 
-                    if not self.edge_server_is_healthy(edge_server):
-                        log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
+                if int(user.steam) not in friendslist:
+                    continue
 
-                        continue
+                # User is EdgeBot's friendslist
 
-                    friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
-
-                    if not friendslist:
-                        # TODO: EdgeBot's friendlist is full. Clean it
-
-                        continue
-
-                    user = self.user_model.get(id=user_id)
-
-                    if int(user.steam) not in friendslist:
-                        continue
-
-                    # User is EdgeBot's friendslist
-
-                    self.push_relations_to_edge_bot(
-                        edge_bot,
-                        edge_server,
-                        items[user_id][currency_code]
-                    )
+                self.push_relations_to_edge_bot(
+                    edge_bot,
+                    edge_server,
+                    items[user_id][currency_code]
+                )
 
     def call_checkout(self, edge_bot, edge_server, account_id):
         log.info(
