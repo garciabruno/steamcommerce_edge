@@ -869,7 +869,10 @@ class EdgeController(object):
 
                         continue
 
-                RelationController().assign_requests_to_user(items[user_id][currency_code])
+                RelationController().assign_requests_to_user(
+                    self.owner_id,
+                    items[user_id][currency_code]
+                )
 
                 RelationController().commit_relations(
                     items[user_id][currency_code],
