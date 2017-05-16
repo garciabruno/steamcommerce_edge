@@ -866,7 +866,10 @@ class EdgeController(object):
 
                     if not invitation_result:
                         # TODO: EdgeBot's friendlist is full, clean it!
+
                         continue
+
+                RelationController().assign_requests_to_user(items[user_id][currency_code])
 
                 RelationController().commit_relations(
                     items[user_id][currency_code],
