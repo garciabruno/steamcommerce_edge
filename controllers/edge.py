@@ -851,7 +851,7 @@ class EdgeController(object):
 
                     sent_invitations = self.get_edge_bot_sent_invitations(edge_bot, edge_server)
 
-                    if not sent_invitations:
+                    if sent_invitations is None or sent_invitations is False:
                         continue
 
                     edge_bots_sent_invitations[edge_bot.network_id] = sent_invitations
