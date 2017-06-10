@@ -23,9 +23,8 @@ log = logger.Logger('edge.controller', 'edge.controller.log').get_logger()
 
 
 class EdgeController(object):
-    def __init__(self, owner_id, payment_method='steamaccount'):
+    def __init__(self, owner_id):
         self.owner_id = owner_id
-        self.payment_method = payment_method
 
         self.user_model = models.User
         self.edge_bot_model = models.EdgeBot
@@ -978,8 +977,7 @@ class EdgeController(object):
 
         data = {
             'network_id': edge_bot.network_id,
-            'giftee_account_id': account_id,
-            'payment_method': self.payment_method
+            'giftee_account_id': account_id
         }
 
         try:
