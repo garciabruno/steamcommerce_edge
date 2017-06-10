@@ -11,8 +11,7 @@ rollbar.init(config.ROLLBAR_TOKEN, config.ROLLBAR_ENV)
 if __name__ == '__main__':
     try:
         edge_controller = edge.EdgeController(
-            config.OWNER_ID,
-            payment_method=config.PAYMENT_METHOD
+            config.OWNER_ID
         )
 
         edge_controller.send_invitations()
