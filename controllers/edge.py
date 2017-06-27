@@ -798,6 +798,7 @@ class EdgeController(object):
 
         edge_bots_friendslists = {}
         edge_bots_sent_invitations = {}
+        edge_bots_invitation_count = {}
 
         for user_id in items.keys():
             for currency_code in items[user_id].keys():
@@ -815,6 +816,18 @@ class EdgeController(object):
                     log.info(u'No available edge bot found for currency {}'.format(currency_code))
 
                     continue
+
+                try:
+                    if edge_bots_invitation_count[edge_bot.network_id] > 25:
+                        log.info(
+                            u'Edge bot with network_id {} invited too many users. Breaking...'.format(
+                                edge_bot.network_id
+                            )
+                        )
+
+                        break
+                except KeyError:
+                    pass
 
                 log.info(
                     u'Edge Bot with network id {0} selected for currency {1}'.format(
@@ -867,6 +880,11 @@ class EdgeController(object):
                         # TODO: EdgeBot's friendlist is full, clean it!
 
                         continue
+
+                    if not edge_bot.network_id in edge_bots_invitation_count.keys():
+                        edge_bots_invitation_count[edge_bot.network_id] = 1
+                    else:
+                        edge_bots_invitation_count[edge_bot.network_id] += 1
 
                 RelationController().assign_requests_to_user(
                     self.owner_id,
