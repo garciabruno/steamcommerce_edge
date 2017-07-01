@@ -27,6 +27,8 @@ class EdgeController(object):
         self.owner_id = owner_id
 
         self.user_model = models.User
+        self.userrequest_model = models.UserRequest
+        self.paidrequest_model = models.PaidRequest
         self.edge_bot_model = models.EdgeBot
         self.edge_task_model = models.EdgeTask
         self.edge_server_model = models.EdgeServer
@@ -458,6 +460,9 @@ class EdgeController(object):
     def get_edge_servers(self):
         return self.edge_server_model.select()
 
+    def get_edge_bots(self, status=enums.EEdgeBotStatus.StandingBy, bot_type=enums.EEdgeBotType.Purchases):
+        return self.edge_bot_model.where(status=status, bot_type=bot_type)
+
     def get_edge_server_for_currency(self, currency_code):
         try:
             return self.edge_server_model.get(
@@ -786,6 +791,92 @@ class EdgeController(object):
             return False
 
         return response
+
+    def sync_friends_list(self):
+        edge_bots = self.get_edge_bots()
+        edge_bots_friendslists = {}
+
+        for edge_bot in edge_bots:
+            edge_server = self.get_edge_server_for_currency(edge_bot.currency_code)
+
+            if not edge_server:
+                continue
+
+            friendslist = self.get_edge_bot_friends_list(edge_bot, edge_server)
+
+            if not friendslist:
+                continue
+
+            edge_bots_friendslists[edge_bot.network_id] = friendslist
+
+        for network_id in edge_bots_friendslists.keys():
+            items = []
+            currency_code = self.get_edge_bot_by_network_id(network_id).currency_code
+
+            for steamid in edge_bots_friendslists[network_id]:
+                try:
+                    user = self.user_model.get(steam=steamid)
+                except self.user_model.DoesNotExist:
+                    continue
+                except:
+                    continue
+
+                paidrequests = self.paidrequest_model.select().where(
+                    self.paidrequest_model.user == user.id,
+                    self.paidrequest_model.accepted == False,
+                    self.paidrequest_model.visible == True,
+                    self.paidrequest_model.authed == True
+                ).order_by(
+                    self.paidrequest_model.date.asc()
+                )
+
+                userrequests = self.userrequest_model.select().where(
+                    self.userrequest_model.user == user.id,
+                    self.userrequest_model.paid == True,
+                    self.userrequest_model.visible == True,
+                    self.userrequest_model.accepted == False
+                ).order_by(
+                    self.userrequest_model.date.asc()
+                )
+
+                for relation in paidrequests.products:
+                    if relation.sent:
+                        continue
+
+                    if relation.product.price_currency != currency_code:
+                        continue
+
+                    items.append({'relation_type': 'C', 'relation_id': relation.id})
+
+                for relation in userrequests.products:
+                    if relation.sent:
+                        continue
+
+                    if relation.product.price_currency != currency_code:
+                        continue
+
+                    items.append({'relation_type': 'C', 'relation_id': relation.id})
+
+            if not len(items):
+                continue
+
+            log.info(
+                u'Syncing {0} relations on network_id {1}'.format(
+                    len(items),
+                    network_id
+                )
+            )
+
+            RelationController().assign_requests_to_user(
+                self.owner_id,
+                items
+            )
+
+            RelationController().commit_relations(
+                items,
+                commited_on_bot=network_id,
+                commitment_level=enums.ERelationCommitment.WaitingForInviteAccept.value
+            )
 
     def send_invitations(self, anticheat_policy=False):
         items = RelationController().get_relations(
