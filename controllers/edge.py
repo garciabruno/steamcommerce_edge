@@ -461,7 +461,7 @@ class EdgeController(object):
         return self.edge_server_model.select()
 
     def get_edge_bots(self, status=enums.EEdgeBotStatus.StandingBy, bot_type=enums.EEdgeBotType.Purchases):
-        return self.edge_bot_model.where(status=status, bot_type=bot_type)
+        return self.edge_bot_model.select().where(status=status, bot_type=bot_type)
 
     def get_edge_server_for_currency(self, currency_code):
         try:
