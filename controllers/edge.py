@@ -842,23 +842,25 @@ class EdgeController(object):
                     self.userrequest_model.date.asc()
                 )
 
-                for relation in paidrequests.products:
-                    if relation.sent:
-                        continue
+                for paidrequest in paidrequests:
+                    for relation in paidrequest.products:
+                        if relation.sent:
+                            continue
 
-                    if relation.product.price_currency != currency_code:
-                        continue
+                        if relation.product.price_currency != currency_code:
+                            continue
 
-                    items.append({'relation_type': 'C', 'relation_id': relation.id})
+                        items.append({'relation_type': 'C', 'relation_id': relation.id})
 
-                for relation in userrequests.products:
-                    if relation.sent:
-                        continue
+                for userrequest in userrequests:
+                    for relation in userrequest.products:
+                        if relation.sent:
+                            continue
 
-                    if relation.product.price_currency != currency_code:
-                        continue
+                        if relation.product.price_currency != currency_code:
+                            continue
 
-                    items.append({'relation_type': 'C', 'relation_id': relation.id})
+                        items.append({'relation_type': 'C', 'relation_id': relation.id})
 
             if not len(items):
                 continue
