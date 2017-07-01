@@ -76,7 +76,8 @@ class EdgeController(object):
             log.info(u'Received a list of previously commited shoppingCartGID that failed')
 
             for shopping_cart_gid in failed_shopping_cart_gids:
-                RelationController().rollback_failed_relations(shopping_cart_gid)
+                if shopping_cart_gid is not None:
+                    RelationController().rollback_failed_relations(shopping_cart_gid)
 
         if len(failed_items):
             log.info(u'Received a list of relations that fail to add to cart')
