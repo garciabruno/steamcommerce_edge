@@ -815,7 +815,7 @@ class EdgeController(object):
                 if not edge_bot:
                     log.info(u'No available edge bot found for currency {}'.format(currency_code))
 
-                    continue
+                    break
 
                 try:
                     if edge_bots_invitation_count[edge_bot.network_id] > 25:
@@ -841,12 +841,12 @@ class EdgeController(object):
                 if not edge_server:
                     log.info(u'Not available edge server found for currency {}'.format(currency_code))
 
-                    continue
+                    break
 
                 if not self.edge_server_is_healthy(edge_server):
                     log.info(u'Edge server #{} is not currently healthy'.format(edge_server.id))
 
-                    continue
+                    break
 
                 if not edge_bots_friendslists.get(edge_bot.network_id):
                     log.info(u'Could not find cached FriendList')
