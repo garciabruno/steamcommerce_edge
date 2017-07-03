@@ -492,31 +492,31 @@ class EdgeController(object):
     def get_edge_bot_by_network_id(self, network_id):
         self.unblock_blocked_bots()
 
-        try:
-            return self.edge_bot_model.get(
-                network_id=network_id,
-                status=enums.EEdgeBotStatus.StandingBy,
-                last_blocked_at=None
-            )
-        except self.edge_bot_model.DoesNotExist:
-            pass
+        edge_bots = self.edge_bot_model.select().where(
+            self.edge_bot_model.network_id == network_id,
+            self.edge_bot_model.status == enums.EEdgeBotStatus.StandingBy,
+            self.edge_bot_model.last_blocked_at == None
+        )
 
-        return None
+        if not edge_bots.count():
+            return None
+
+        return edge_bots[0]
 
     def get_edge_bot_for_currency(self, currency_code, bot_type=enums.EEdgeBotType.Purchases):
         self.unblock_blocked_bots()
 
-        try:
-            return self.edge_bot_model.get(
-                currency_code=currency_code,
-                status=enums.EEdgeBotStatus.StandingBy,
-                bot_type=bot_type,
-                last_blocked_at=None
-            )
-        except self.edge_bot_model.DoesNotExist:
-            pass
+        edge_bots = self.edge_bot_model.select().where(
+            self.edge_bot_model.currency_code == currency_code,
+            self.edge_bot_model.status == enums.EEdgeBotStatus.StandingBy,
+            self.edge_bot_model.bot_type == bot_type,
+            self.edge_bot_model.last_blocked_at == None
+        )
 
-        return None
+        if not edge_bots.count():
+            return None
+
+        return edge_bots[0]
 
     def get_edge_api_url(self, ip_address, endpoint_name):
         return 'http://{0}/edge/{1}'.format(ip_address, endpoint_name)
