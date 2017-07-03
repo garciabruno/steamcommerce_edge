@@ -160,10 +160,7 @@ class EdgeController(object):
             elif transaction_result == enums.ETransactionResult.TooManyPurchases:
                 log.info(u'Too many purchases made in the last few hours')
 
-                self.set_edge_bot_status(
-                    edge_task.edge_bot.network_id,
-                    enums.EEdgeBotStatus.BlockedForTooManyPurchases.value
-                )
+                self.set_edge_bot_block_time(edge_task.edge_bot.network_id)
 
             return transaction_result
 
@@ -457,10 +454,21 @@ class EdgeController(object):
     Edge methods
     '''
 
+    def unblock_blocked_bots(self):
+        time_delta = datetime.datetime.now() - datetime.timedelta(hours=1.5)
+
+        return self.edge_bot_model.select().update(
+            last_blocked_at=None
+        ).where(
+            self.edge_bot_model.last_blocked_at < time_delta
+        ).execute()
+
     def get_edge_servers(self):
         return self.edge_server_model.select()
 
     def get_edge_bots(self, status=enums.EEdgeBotStatus.StandingBy, bot_type=enums.EEdgeBotType.Purchases):
+        self.unblock_blocked_bots()
+
         return self.edge_bot_model.select().where(
             self.edge_bot_model.status == status,
             self.edge_bot_model.bot_type == bot_type
@@ -476,6 +484,8 @@ class EdgeController(object):
             return None
 
     def get_edge_bot_by_network_id(self, network_id):
+        self.unblock_blocked_bots()
+
         try:
             return self.edge_bot_model.get(
                 network_id=network_id,
@@ -487,6 +497,8 @@ class EdgeController(object):
         return None
 
     def get_edge_bot_for_currency(self, currency_code, bot_type=enums.EEdgeBotType.Purchases):
+        self.unblock_blocked_bots()
+
         try:
             return self.edge_bot_model.get(
                 currency_code=currency_code,
@@ -542,6 +554,13 @@ class EdgeController(object):
 
     def set_edge_bot_status(self, network_id, status):
         return self.edge_bot_model.update(status=status).where(
+            self.edge_bot_model.network_id == network_id
+        ).execute()
+
+    def set_edge_bot_block_time(self, network_id):
+        return self.edge_bot_model.update(
+            last_blocked_at=datetime.datetime.now()
+        ).where(
             self.edge_bot_model.network_id == network_id
         ).execute()
 
