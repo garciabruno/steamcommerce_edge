@@ -157,8 +157,14 @@ class EdgeController(object):
                     edge_task.edge_bot.network_id,
                     enums.EEdgeBotStatus.WaitingForSufficientFunds.value
                 )
+
             elif transaction_result == enums.ETransactionResult.TooManyPurchases:
                 log.info(u'Too many purchases made in the last few hours')
+
+                self.set_edge_bot_status(
+                    edge_task.edge_bot.network_id,
+                    enums.EEdgeBotStatus.StandingBy.value
+                )
 
                 self.set_edge_bot_block_time(edge_task.edge_bot.network_id)
 
