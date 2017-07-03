@@ -463,7 +463,7 @@ class EdgeController(object):
     def unblock_blocked_bots(self):
         time_delta = datetime.datetime.now() - datetime.timedelta(hours=1.5)
 
-        return self.edge_bot_model.select().update(
+        return self.edge_bot_model.update(
             last_blocked_at=None
         ).where(
             self.edge_bot_model.last_blocked_at < time_delta
