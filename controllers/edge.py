@@ -495,7 +495,8 @@ class EdgeController(object):
         try:
             return self.edge_bot_model.get(
                 network_id=network_id,
-                status=enums.EEdgeBotStatus.StandingBy
+                status=enums.EEdgeBotStatus.StandingBy,
+                last_blocked_at=None
             )
         except self.edge_bot_model.DoesNotExist:
             pass
@@ -509,7 +510,8 @@ class EdgeController(object):
             return self.edge_bot_model.get(
                 currency_code=currency_code,
                 status=enums.EEdgeBotStatus.StandingBy,
-                bot_type=bot_type
+                bot_type=bot_type,
+                last_blocked_at=None
             )
         except self.edge_bot_model.DoesNotExist:
             pass
